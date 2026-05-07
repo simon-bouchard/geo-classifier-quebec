@@ -100,8 +100,10 @@ def query_cell(lon0: float, lat0: float, lon1: float, lat1: float) -> int:
         while True:
             try:
                 resp = requests.get(API_URL, params=params, timeout=30)
-            except requests.exceptions.RequestException:
-                time.sleep(5)
+            except requests.exceptions.RequestException as e:
+                with print_lock:
+                    print(f" [timeout: {e.__class__.__name__}, retrying in 10s]", flush=True)
+                time.sleep(10)
                 continue
             if resp.status_code == 429:
                 with print_lock:
@@ -130,6 +132,9 @@ def count_region(region: Region) -> tuple[int, bool]:
     n_rows = math.ceil((region.lat_max - region.lat_min) / CELL_SIZE)
     total  = 0
 
+    total_cells = n_rows * n_cols
+    queried     = 0
+
     for row in range(n_rows):
         for col in range(n_cols):
             lon0 = region.lon_min + col * CELL_SIZE
@@ -137,8 +142,13 @@ def count_region(region: Region) -> tuple[int, bool]:
             lon1 = min(lon0 + CELL_SIZE, region.lon_max)
             lat1 = min(lat0 + CELL_SIZE, region.lat_max)
 
-            total += query_cell(lon0, lat0, lon1, lat1)
+            total   += query_cell(lon0, lat0, lon1, lat1)
+            queried += 1
             time.sleep(DELAY)
+
+            if queried % 100 == 0:
+                with print_lock:
+                    print(f"  {region.name}: {queried}/{total_cells} cells, {total:,} images so far", flush=True)
 
             if total >= REGION_CAP:
                 return total, True
