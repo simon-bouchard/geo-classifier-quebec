@@ -7,3 +7,7 @@
 # Python
 __pycache__/
 *.pyc
+
+# Data
+data/coverage_results.json
+
