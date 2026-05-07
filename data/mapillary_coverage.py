@@ -98,7 +98,11 @@ def query_cell(lon0: float, lat0: float, lon1: float, lat1: float) -> int:
 
     while True:
         while True:
-            resp = requests.get(API_URL, params=params, timeout=30)
+            try:
+                resp = requests.get(API_URL, params=params, timeout=30)
+            except requests.exceptions.RequestException:
+                time.sleep(5)
+                continue
             if resp.status_code == 429:
                 with print_lock:
                     print(" [rate limited, waiting 60s]", flush=True)
