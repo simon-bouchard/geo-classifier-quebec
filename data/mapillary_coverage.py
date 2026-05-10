@@ -31,13 +31,13 @@ TOKEN = os.environ.get("MAPILLARY_TOKEN")
 if not TOKEN:
     sys.exit("MAPILLARY_TOKEN not set — add it to .env")
 
-API_URL     = "https://graph.mapillary.com/images"
-PAGE_SIZE   = 2000    # max images per Mapillary page
-REGION_CAP  = 50_000  # stop counting beyond this per region
-CELL_SIZE   = 0.03    # degrees — Mapillary tightened bbox limits; 0.04 fails, 0.03 confirmed working
-DELAY       = 0.15    # seconds between paginated requests within a cell
-CONCURRENCY = 20      # max simultaneous HTTP requests
-CHECKPOINT  = "data/coverage_results.json"
+API_URL = "https://graph.mapillary.com/images"
+PAGE_SIZE = 2000  # max images per Mapillary page
+REGION_CAP = 50_000  # stop counting beyond this per region
+CELL_SIZE = 0.03  # degrees — Mapillary tightened bbox limits; 0.04 fails, 0.03 confirmed working
+DELAY = 0.15  # seconds between paginated requests within a cell
+CONCURRENCY = 20  # max simultaneous HTTP requests
+CHECKPOINT = "data/coverage_results.json"
 
 
 @dataclass
@@ -50,22 +50,22 @@ class Region:
 
 
 REGIONS = [
-    Region("Bas-Saint-Laurent",               -69.5,  47.0,  -63.5,  49.0),
-    Region("Saguenay-Lac-Saint-Jean",         -76.5,  47.5,  -69.5,  52.5),
-    Region("Capitale-Nationale",              -72.5,  46.5,  -70.0,  48.5),
-    Region("Mauricie",                        -74.5,  46.0,  -72.0,  48.5),
-    Region("Estrie",                          -72.5,  45.0,  -71.0,  46.2),
-    Region("Montreal",                        -73.97, 45.40, -73.47, 45.70),
-    Region("Outaouais",                       -77.5,  45.3,  -74.5,  47.5),
-    Region("Abitibi-Temiscamingue",           -80.0,  47.0,  -76.0,  49.5),
-    Region("Cote-Nord",                       -70.5,  49.0,  -57.0,  52.5),
-    Region("Gaspesie-Iles-de-la-Madeleine",  -66.5,  47.5,  -61.5,  49.5),
-    Region("Chaudiere-Appalaches",            -71.5,  45.8,  -70.0,  47.0),
-    Region("Laval",                           -73.90, 45.52, -73.52, 45.70),
-    Region("Lanaudiere",                      -74.5,  45.6,  -72.5,  47.5),
-    Region("Laurentides",                     -76.5,  45.7,  -73.5,  47.5),
-    Region("Monteregie",                      -74.5,  45.0,  -72.5,  45.6),
-    Region("Centre-du-Quebec",                -73.0,  45.5,  -71.5,  46.5),
+    Region("Bas-Saint-Laurent", -69.5, 47.0, -63.5, 49.0),
+    Region("Saguenay-Lac-Saint-Jean", -76.5, 47.5, -69.5, 52.5),
+    Region("Capitale-Nationale", -72.5, 46.5, -70.0, 48.5),
+    Region("Mauricie", -74.5, 46.0, -72.0, 48.5),
+    Region("Estrie", -72.5, 45.0, -71.0, 46.2),
+    Region("Montreal", -73.97, 45.40, -73.47, 45.70),
+    Region("Outaouais", -77.5, 45.3, -74.5, 47.5),
+    Region("Abitibi-Temiscamingue", -80.0, 47.0, -76.0, 49.5),
+    Region("Cote-Nord", -70.5, 49.0, -57.0, 52.5),
+    Region("Gaspesie-Iles-de-la-Madeleine", -66.5, 47.5, -61.5, 49.5),
+    Region("Chaudiere-Appalaches", -71.5, 45.8, -70.0, 47.0),
+    Region("Laval", -73.90, 45.52, -73.52, 45.70),
+    Region("Lanaudiere", -74.5, 45.6, -72.5, 47.5),
+    Region("Laurentides", -76.5, 45.7, -73.5, 47.5),
+    Region("Monteregie", -74.5, 45.0, -72.5, 45.6),
+    Region("Centre-du-Quebec", -73.0, 45.5, -71.5, 46.5),
 ]
 
 
@@ -85,7 +85,11 @@ def save_checkpoint(results: list[dict]) -> None:
 async def query_cell(
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
-    lon0: float, lat0: float, lon1: float, lat1: float,
+    lon0: float,
+    lat0: float,
+    lon1: float,
+    lat1: float,
+    stop: asyncio.Event | None = None,
 ) -> int:
     params: dict = {
         "access_token": TOKEN,
@@ -97,6 +101,8 @@ async def query_cell(
 
     while True:
         async with semaphore:
+            if stop is not None and stop.is_set():
+                return 0
             while True:
                 try:
                     async with session.get(API_URL, params=params) as resp:
@@ -139,35 +145,42 @@ async def count_region(
     n_rows = math.ceil((region.lat_max - region.lat_min) / CELL_SIZE)
     total_cells = n_rows * n_cols
 
-    total   = 0
+    total = 0
     queried = 0
-    lock    = asyncio.Lock()
-    stop    = asyncio.Event()
+    lock = asyncio.Lock()
+    stop = asyncio.Event()
 
     async def process_cell(lon0: float, lat0: float, lon1: float, lat1: float) -> None:
         nonlocal total, queried
         if stop.is_set():
             return
-        n = await query_cell(session, semaphore, lon0, lat0, lon1, lat1)
+        n = await query_cell(session, semaphore, lon0, lat0, lon1, lat1, stop)
         async with lock:
-            total   += n
+            total += n
             queried += 1
             if total >= REGION_CAP:
                 stop.set()
             if queried % 100 == 0:
                 async with print_lock:
-                    print(f"  {region.name}: {queried}/{total_cells} cells, {total:,} images so far", flush=True)
+                    print(
+                        f"  {region.name}: {queried}/{total_cells} cells, {total:,} images so far",
+                        flush=True,
+                    )
 
-    await asyncio.gather(*[
-        asyncio.create_task(process_cell(
-            region.lon_min + col * CELL_SIZE,
-            region.lat_min + row * CELL_SIZE,
-            min(region.lon_min + (col + 1) * CELL_SIZE, region.lon_max),
-            min(region.lat_min + (row + 1) * CELL_SIZE, region.lat_max),
-        ))
-        for row in range(n_rows)
-        for col in range(n_cols)
-    ])
+    await asyncio.gather(
+        *[
+            asyncio.create_task(
+                process_cell(
+                    region.lon_min + col * CELL_SIZE,
+                    region.lat_min + row * CELL_SIZE,
+                    min(region.lon_min + (col + 1) * CELL_SIZE, region.lon_max),
+                    min(region.lat_min + (row + 1) * CELL_SIZE, region.lat_max),
+                )
+            )
+            for row in range(n_rows)
+            for col in range(n_cols)
+        ]
+    )
     return total, stop.is_set()
 
 
@@ -194,9 +207,9 @@ async def process_region(
 
 
 async def main_async(fresh: bool) -> None:
-    done      = {} if fresh else load_checkpoint()
+    done = {} if fresh else load_checkpoint()
     completed = list(done.values())
-    todo      = [r for r in REGIONS if r.name not in done]
+    todo = [r for r in REGIONS if r.name not in done]
 
     print(f"\n{'Region':<42} {'Images':>10}")
     print("-" * 55)
@@ -205,16 +218,18 @@ async def main_async(fresh: bool) -> None:
         label = f"{result['images']:,}+" if result["capped"] else f"{result['images']:,}"
         print(f"  {result['region']:<40} {label:>11}  (cached)")
 
-    semaphore       = asyncio.Semaphore(CONCURRENCY)
-    print_lock      = asyncio.Lock()
+    semaphore = asyncio.Semaphore(CONCURRENCY)
+    print_lock = asyncio.Lock()
     checkpoint_lock = asyncio.Lock()
 
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        await asyncio.gather(*[
-            process_region(session, semaphore, r, completed, print_lock, checkpoint_lock)
-            for r in todo
-        ])
+        await asyncio.gather(
+            *[
+                process_region(session, semaphore, r, completed, print_lock, checkpoint_lock)
+                for r in todo
+            ]
+        )
 
     print("-" * 55)
     region_order = {r.name: i for i, r in enumerate(REGIONS)}
