@@ -2,14 +2,14 @@
 """
 Counts Mapillary images per Quebec administrative region.
 
-Each region is split into 0.09-degree grid cells (API limit: 0.010 sq degrees).
-Regions are processed in parallel. Results are checkpointed after each region
-so a crashed run can be resumed.
+Each region is split into 0.03-degree grid cells. All cells across all regions
+are submitted as concurrent async tasks; CONCURRENCY caps simultaneous HTTP
+requests globally. Results are checkpointed after each region completes.
 
 Output: terminal table + data/coverage_results.json
 
 Setup:
-    uv add requests   # python-dotenv not needed — direnv loads .env
+    uv add aiohttp   # python-dotenv not needed — direnv loads .env
     echo "MAPILLARY_TOKEN=your_token" > .env
 
 Usage:
@@ -18,28 +18,26 @@ Usage:
 """
 
 import argparse
+import asyncio
 import json
 import math
 import os
 import sys
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
-import requests
+import aiohttp
 
 TOKEN = os.environ.get("MAPILLARY_TOKEN")
 if not TOKEN:
     sys.exit("MAPILLARY_TOKEN not set — add it to .env")
 
-API_URL    = "https://graph.mapillary.com/images"
-PAGE_SIZE  = 2000    # max images per Mapillary page
-REGION_CAP = 50_000  # stop counting beyond this per region
-CELL_SIZE  = 0.09    # degrees — keeps bbox area under the 0.010 sq degree API limit
-DELAY      = 0.15    # seconds between requests per thread
-WORKERS    = 4
-CHECKPOINT = "data/coverage_results.json"
+API_URL     = "https://graph.mapillary.com/images"
+PAGE_SIZE   = 2000    # max images per Mapillary page
+REGION_CAP  = 50_000  # stop counting beyond this per region
+CELL_SIZE   = 0.03    # degrees — Mapillary tightened bbox limits; 0.04 fails, 0.03 confirmed working
+DELAY       = 0.15    # seconds between paginated requests within a cell
+CONCURRENCY = 20      # max simultaneous HTTP requests
+CHECKPOINT  = "data/coverage_results.json"
 
 
 @dataclass
@@ -70,9 +68,6 @@ REGIONS = [
     Region("Centre-du-Quebec",                -73.0,  45.5,  -71.5,  46.5),
 ]
 
-print_lock      = threading.Lock()
-checkpoint_lock = threading.Lock()
-
 
 def load_checkpoint() -> dict[str, dict]:
     if not os.path.exists(CHECKPOINT):
@@ -87,7 +82,11 @@ def save_checkpoint(results: list[dict]) -> None:
         json.dump(results, f, indent=2, ensure_ascii=False)
 
 
-def query_cell(lon0: float, lat0: float, lon1: float, lat1: float) -> int:
+async def query_cell(
+    session: aiohttp.ClientSession,
+    semaphore: asyncio.Semaphore,
+    lon0: float, lat0: float, lon1: float, lat1: float,
+) -> int:
     params: dict = {
         "access_token": TOKEN,
         "fields": "id",
@@ -97,25 +96,28 @@ def query_cell(lon0: float, lat0: float, lon1: float, lat1: float) -> int:
     count = 0
 
     while True:
-        while True:
-            try:
-                resp = requests.get(API_URL, params=params, timeout=30)
-            except requests.exceptions.RequestException as e:
-                with print_lock:
-                    print(f" [timeout: {e.__class__.__name__}, retrying in 10s]", flush=True)
-                time.sleep(10)
-                continue
-            if resp.status_code == 429:
-                with print_lock:
-                    print(" [rate limited, waiting 60s]", flush=True)
-                time.sleep(60)
-                continue
-            if resp.status_code >= 500:
-                return 0
-            resp.raise_for_status()
-            break
+        async with semaphore:
+            while True:
+                try:
+                    async with session.get(API_URL, params=params) as resp:
+                        if resp.status == 429:
+                            print(" [rate limited, waiting 60s]", flush=True)
+                            await asyncio.sleep(60)
+                            continue
+                        if resp.status >= 500:
+                            return 0
+                        resp.raise_for_status()
+                        data = await resp.json()
+                except asyncio.TimeoutError:
+                    print(" [timeout, retrying in 10s]", flush=True)
+                    await asyncio.sleep(10)
+                    continue
+                except aiohttp.ClientError as e:
+                    print(f" [error: {e.__class__.__name__}, retrying in 10s]", flush=True)
+                    await asyncio.sleep(10)
+                    continue
+                break
 
-        data   = resp.json()
         images = data.get("data", [])
         count += len(images)
 
@@ -124,59 +126,75 @@ def query_cell(lon0: float, lat0: float, lon1: float, lat1: float) -> int:
             return count
 
         params["after"] = cursor
-        time.sleep(DELAY)
+        await asyncio.sleep(DELAY)
 
 
-def count_region(region: Region) -> tuple[int, bool]:
+async def count_region(
+    session: aiohttp.ClientSession,
+    semaphore: asyncio.Semaphore,
+    region: Region,
+    print_lock: asyncio.Lock,
+) -> tuple[int, bool]:
     n_cols = math.ceil((region.lon_max - region.lon_min) / CELL_SIZE)
     n_rows = math.ceil((region.lat_max - region.lat_min) / CELL_SIZE)
-    total  = 0
-
     total_cells = n_rows * n_cols
-    queried     = 0
 
-    for row in range(n_rows):
-        for col in range(n_cols):
-            lon0 = region.lon_min + col * CELL_SIZE
-            lat0 = region.lat_min + row * CELL_SIZE
-            lon1 = min(lon0 + CELL_SIZE, region.lon_max)
-            lat1 = min(lat0 + CELL_SIZE, region.lat_max)
+    total   = 0
+    queried = 0
+    lock    = asyncio.Lock()
+    stop    = asyncio.Event()
 
-            total   += query_cell(lon0, lat0, lon1, lat1)
+    async def process_cell(lon0: float, lat0: float, lon1: float, lat1: float) -> None:
+        nonlocal total, queried
+        if stop.is_set():
+            return
+        n = await query_cell(session, semaphore, lon0, lat0, lon1, lat1)
+        async with lock:
+            total   += n
             queried += 1
-            time.sleep(DELAY)
-
+            if total >= REGION_CAP:
+                stop.set()
             if queried % 100 == 0:
-                with print_lock:
+                async with print_lock:
                     print(f"  {region.name}: {queried}/{total_cells} cells, {total:,} images so far", flush=True)
 
-            if total >= REGION_CAP:
-                return total, True
+    await asyncio.gather(*[
+        asyncio.create_task(process_cell(
+            region.lon_min + col * CELL_SIZE,
+            region.lat_min + row * CELL_SIZE,
+            min(region.lon_min + (col + 1) * CELL_SIZE, region.lon_max),
+            min(region.lat_min + (row + 1) * CELL_SIZE, region.lat_max),
+        ))
+        for row in range(n_rows)
+        for col in range(n_cols)
+    ])
+    return total, stop.is_set()
 
-    return total, False
 
-
-def process_region(region: Region, completed: list[dict]) -> dict:
-    count, capped = count_region(region)
+async def process_region(
+    session: aiohttp.ClientSession,
+    semaphore: asyncio.Semaphore,
+    region: Region,
+    completed: list[dict],
+    print_lock: asyncio.Lock,
+    checkpoint_lock: asyncio.Lock,
+) -> dict:
+    count, capped = await count_region(session, semaphore, region, print_lock)
     result = {"region": region.name, "images": count, "capped": capped}
 
     label = f"{count:,}+" if capped else f"{count:,}"
-    with print_lock:
+    async with print_lock:
         print(f"  {region.name:<40} {label:>11}")
 
-    with checkpoint_lock:
+    async with checkpoint_lock:
         completed.append(result)
         save_checkpoint(completed)
 
     return result
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--fresh", action="store_true", help="ignore checkpoint and start over")
-    args = parser.parse_args()
-
-    done      = {} if args.fresh else load_checkpoint()
+async def main_async(fresh: bool) -> None:
+    done      = {} if fresh else load_checkpoint()
     completed = list(done.values())
     todo      = [r for r in REGIONS if r.name not in done]
 
@@ -187,10 +205,16 @@ def main() -> None:
         label = f"{result['images']:,}+" if result["capped"] else f"{result['images']:,}"
         print(f"  {result['region']:<40} {label:>11}  (cached)")
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as executor:
-        futures = {executor.submit(process_region, r, completed): r for r in todo}
-        for future in as_completed(futures):
-            future.result()  # re-raise any exception from the worker
+    semaphore       = asyncio.Semaphore(CONCURRENCY)
+    print_lock      = asyncio.Lock()
+    checkpoint_lock = asyncio.Lock()
+
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        await asyncio.gather(*[
+            process_region(session, semaphore, r, completed, print_lock, checkpoint_lock)
+            for r in todo
+        ])
 
     print("-" * 55)
     region_order = {r.name: i for i, r in enumerate(REGIONS)}
@@ -198,6 +222,13 @@ def main() -> None:
     total = sum(r["images"] for r in completed)
     print(f"  {'Total':<40} {total:>10,}")
     print(f"\nResults saved -> {CHECKPOINT}\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fresh", action="store_true", help="ignore checkpoint and start over")
+    args = parser.parse_args()
+    asyncio.run(main_async(args.fresh))
 
 
 if __name__ == "__main__":
