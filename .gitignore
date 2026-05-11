@@ -10,4 +10,10 @@ __pycache__/
 
 # Data
 data/coverage_results.json
+data/images/
+data/region_polygons.gpkg
+data/*.log
+
+# Cache
+cache/
 

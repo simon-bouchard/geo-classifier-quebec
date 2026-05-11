@@ -66,6 +66,7 @@ REGIONS = [
     Region("Laurentides", -76.5, 45.7, -73.5, 47.5),
     Region("Monteregie", -74.5, 45.0, -72.5, 45.6),
     Region("Centre-du-Quebec", -73.0, 45.5, -71.5, 46.5),
+    Region("Nord-du-Quebec", -80.0, 49.5, -57.0, 63.0),
 ]
 
 
