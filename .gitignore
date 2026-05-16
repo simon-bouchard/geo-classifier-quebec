@@ -16,6 +16,10 @@ data/*.log
 
 # Model
 models/*.onnx
+models/*.json
+
+# Dataset
+data/dataset/
 
 # Cache
 cache/
