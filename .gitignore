@@ -17,6 +17,7 @@ data/*.log
 # Model
 models/*.onnx
 models/*.json
+models/*.csv
 
 # Dataset
 data/dataset/
