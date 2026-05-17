@@ -6,8 +6,8 @@ A fine-tuned EfficientNet-V2-M that classifies street-level photos into one of Q
 
 | Split      | Accuracy |
 |------------|----------|
-| Validation | 90.8%    |
-| Test       | 88.8%    |
+| Validation | 92.0%    |
+| Test       | 89.9%    |
 
 The ~2% gap between validation and test accuracy is expected: both splits are drawn from the same image pool, but the test set is held out from the beginning and never influences model selection. The remaining gap reflects genuinely ambiguous cases at administrative borders, where a street photo on either side of a boundary can look identical.
 
@@ -16,30 +16,30 @@ The ~2% gap between validation and test accuracy is expected: both splits are dr
 | Region                        | Accuracy |
 |-------------------------------|----------|
 | Cote-Nord                     | 100.0%   |
-| Nord-du-Quebec                | 100.0%   |
-| Abitibi-Temiscamingue         |  98.6%   |
-| Centre-du-Quebec              |  98.6%   |
-| Gaspesie-Iles-de-la-Madeleine |  97.2%   |
-| Chaudiere-Appalaches          |  94.4%   |
-| Bas-Saint-Laurent             |  92.9%   |
-| Saguenay-Lac-Saint-Jean       |  91.5%   |
-| Estrie                        |  90.1%   |
-| Lanaudiere                    |  90.1%   |
-| Laval                         |  87.3%   |
-| Mauricie                      |  85.9%   |
-| Laurentides                   |  83.1%   |
-| Montreal                      |  83.1%   |
-| Outaouais                     |  78.9%   |
-| Monteregie                    |  76.1%   |
-| Capitale-Nationale            |  67.6%   |
+| Nord-du-Quebec                |  99.1%   |
+| Saguenay-Lac-Saint-Jean       |  96.4%   |
+| Abitibi-Temiscamingue         |  95.6%   |
+| Bas-Saint-Laurent             |  95.5%   |
+| Centre-du-Quebec              |  94.6%   |
+| Chaudiere-Appalaches          |  93.8%   |
+| Estrie                        |  93.8%   |
+| Gaspesie-Iles-de-la-Madeleine |  92.0%   |
+| Montreal                      |  90.3%   |
+| Laval                         |  87.6%   |
+| Monteregie                    |  86.7%   |
+| Mauricie                      |  83.0%   |
+| Outaouais                     |  82.1%   |
+| Lanaudiere                    |  81.4%   |
+| Laurentides                   |  80.4%   |
+| Capitale-Nationale            |  75.0%   |
 
-Geographically isolated regions (Cote-Nord, Nord-du-Quebec, Abitibi-Temiscamingue) are nearly perfect. The main failure modes are adjacent urban or St. Lawrence valley pairs: Capitale-Nationale is confused with Saguenay-Lac-Saint-Jean (9 errors), and the Montreal metro cluster (Montreal / Laval / Monteregie) accounts for most of the remaining errors.
+Geographically isolated regions (Cote-Nord, Nord-du-Quebec, Abitibi-Temiscamingue) are nearly perfect. The main failure modes are adjacent urban or St. Lawrence valley pairs: Capitale-Nationale is confused with Saguenay-Lac-Saint-Jean (6 errors) and Mauricie (8 errors), and the Montreal metro cluster (Montreal / Laval / Monteregie) accounts for most of the remaining errors.
 
 ### Confusion matrix
 
 ![Confusion matrix](assets/confusion_matrix.png)
 
-*Row-normalised percentages. Off-diagonal errors are almost exclusively between geographically adjacent regions.*
+*Row-normalised percentages on the test set. Off-diagonal errors are almost exclusively between geographically adjacent regions.*
 
 ## Dataset
 
@@ -64,7 +64,7 @@ Street-level images sourced from the [Mapillary API](https://www.mapillary.com/d
 - **Input**: 480×480 (cropped from 512×512 cached tensors)
 - **Training**: two-phase on Kaggle GPU
   - Phase 1 (5 epochs): head only, AdamW lr=1e-3, backbone frozen
-  - Phase 2 (20 epochs): full fine-tune, AdamW lr=5e-5 + CosineAnnealingLR
+  - Phase 2 (15 epochs): full fine-tune, AdamW lr=5e-5 + CosineAnnealingLR
 - **Regularisation**: label smoothing 0.1, gradient accumulation (effective batch 32), mixed precision (AMP)
 - **Tracking**: [W&B project](https://wandb.ai/simon-bouchard31-self-employed/geo-classifier-quebec)
 
