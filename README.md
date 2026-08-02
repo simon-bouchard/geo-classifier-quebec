@@ -13,6 +13,7 @@ The ~2% gap between validation and test accuracy is expected: both splits are dr
 
 ### Global metrics (test set, 1909 images)
 
+<<<<<<< HEAD
 | Metric    | Macro avg | Weighted avg |
 |-----------|-----------|--------------|
 | Precision | 0.899     | 0.899        |
@@ -47,7 +48,7 @@ Geographically isolated regions (Cote-Nord, Nord-du-Quebec, Abitibi-Temiscamingu
 
 ![Confusion matrix](assets/confusion_matrix.png)
 
-*Row-normalised percentages. Off-diagonal errors are almost exclusively between geographically adjacent regions.*
+*Row-normalised percentages on the test set. Off-diagonal errors are almost exclusively between geographically adjacent regions.*
 
 ## Dataset
 
@@ -72,7 +73,7 @@ Street-level images sourced from the [Mapillary API](https://www.mapillary.com/d
 - **Input**: 480×480 (cropped from 512×512 cached tensors)
 - **Training**: two-phase on Kaggle GPU
   - Phase 1 (5 epochs): head only, AdamW lr=1e-3, backbone frozen
-  - Phase 2 (20 epochs): full fine-tune, AdamW lr=5e-5 + CosineAnnealingLR
+  - Phase 2 (15 epochs): full fine-tune, AdamW lr=5e-5 + CosineAnnealingLR
 - **Regularisation**: label smoothing 0.1, gradient accumulation (effective batch 32), mixed precision (AMP)
 - **Tracking**: [W&B project](https://wandb.ai/simon-bouchard31-self-employed/geo-classifier-quebec)
 

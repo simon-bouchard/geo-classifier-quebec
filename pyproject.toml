@@ -12,3 +12,8 @@ dependencies = [
     "requests>=2.33.1",
     "shapely>=2.1.2",
 ]
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.9",
+]
