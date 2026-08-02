@@ -6,34 +6,42 @@ A fine-tuned EfficientNet-V2-M that classifies street-level photos into one of Q
 
 | Split      | Accuracy |
 |------------|----------|
-| Validation | 90.8%    |
-| Test       | 88.8%    |
+| Validation | 92.0%    |
+| Test       | 89.8%    |
 
 The ~2% gap between validation and test accuracy is expected: both splits are drawn from the same image pool, but the test set is held out from the beginning and never influences model selection. The remaining gap reflects genuinely ambiguous cases at administrative borders, where a street photo on either side of a boundary can look identical.
 
-### Per-region accuracy (test set)
+### Global metrics (test set, 1909 images)
 
-| Region                        | Accuracy |
-|-------------------------------|----------|
-| Cote-Nord                     | 100.0%   |
-| Nord-du-Quebec                | 100.0%   |
-| Abitibi-Temiscamingue         |  98.6%   |
-| Centre-du-Quebec              |  98.6%   |
-| Gaspesie-Iles-de-la-Madeleine |  97.2%   |
-| Chaudiere-Appalaches          |  94.4%   |
-| Bas-Saint-Laurent             |  92.9%   |
-| Saguenay-Lac-Saint-Jean       |  91.5%   |
-| Estrie                        |  90.1%   |
-| Lanaudiere                    |  90.1%   |
-| Laval                         |  87.3%   |
-| Mauricie                      |  85.9%   |
-| Laurentides                   |  83.1%   |
-| Montreal                      |  83.1%   |
-| Outaouais                     |  78.9%   |
-| Monteregie                    |  76.1%   |
-| Capitale-Nationale            |  67.6%   |
+| Metric    | Macro avg | Weighted avg |
+|-----------|-----------|--------------|
+| Precision | 0.899     | 0.899        |
+| Recall    | 0.898     | 0.898        |
+| F1-score  | 0.898     | 0.898        |
 
-Geographically isolated regions (Cote-Nord, Nord-du-Quebec, Abitibi-Temiscamingue) are nearly perfect. The main failure modes are adjacent urban or St. Lawrence valley pairs: Capitale-Nationale is confused with Saguenay-Lac-Saint-Jean (9 errors), and the Montreal metro cluster (Montreal / Laval / Monteregie) accounts for most of the remaining errors.
+### Per-region metrics (test set)
+
+| Region                         | Precision | Recall | F1-score |
+|--------------------------------|-----------|--------|----------|
+| Cote-Nord                      | 1.000     | 1.000  | 1.000    |
+| Nord-du-Quebec                 | 0.982     | 0.991  | 0.987    |
+| Abitibi-Temiscamingue          | 0.956     | 0.956  | 0.956    |
+| Chaudiere-Appalaches           | 0.963     | 0.938  | 0.950    |
+| Centre-du-Quebec               | 0.946     | 0.946  | 0.946    |
+| Bas-Saint-Laurent              | 0.930     | 0.955  | 0.943    |
+| Saguenay-Lac-Saint-Jean        | 0.893     | 0.964  | 0.927    |
+| Gaspesie-Iles-de-la-Madeleine  | 0.904     | 0.920  | 0.912    |
+| Estrie                         | 0.868     | 0.938  | 0.901    |
+| Monteregie                     | 0.899     | 0.867  | 0.883    |
+| Montreal                       | 0.850     | 0.903  | 0.876    |
+| Laval                          | 0.868     | 0.876  | 0.872    |
+| Outaouais                      | 0.911     | 0.821  | 0.864    |
+| Laurentides                    | 0.865     | 0.804  | 0.833    |
+| Mauricie                       | 0.830     | 0.830  | 0.830    |
+| Lanaudiere                     | 0.780     | 0.814  | 0.797    |
+| Capitale-Nationale             | 0.832     | 0.750  | 0.789    |
+
+Geographically isolated regions (Cote-Nord, Nord-du-Quebec, Abitibi-Temiscamingue) are nearly perfect. The main failure modes are adjacent urban or St. Lawrence valley pairs: Capitale-Nationale is confused with Mauricie and Saguenay-Lac-Saint-Jean, and the Montreal metro cluster (Montreal / Laval / Monteregie) accounts for most of the remaining errors.
 
 ### Confusion matrix
 
