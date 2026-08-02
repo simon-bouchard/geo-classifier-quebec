@@ -13,7 +13,6 @@ The ~2% gap between validation and test accuracy is expected: both splits are dr
 
 ### Global metrics (test set, 1909 images)
 
-<<<<<<< HEAD
 | Metric    | Macro avg | Weighted avg |
 |-----------|-----------|--------------|
 | Precision | 0.899     | 0.899        |
